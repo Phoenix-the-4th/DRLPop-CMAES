@@ -43,9 +43,16 @@ class CurrentState:
     fopt_best: float
     n: int
     used_budget: int
-    triggered_criteria: Dict[str, bool] = field(default_factory=dict)
-    extra: Dict[str, Any] = field(default_factory=dict)
+    # triggered_criteria: Dict[str, bool] = field(default_factory=dict)
+    # extra: Dict[str, Any] = field(default_factory=dict)
+    triggered_criteria: Dict[str, bool]
+    extra: Dict[str, Any]
 
+
+@dataclass
+class BBOBState(CurrentState):
+    fid: int
+    iid: int
 
 
 ##### need to add new data class to set the restart conditions of cmaes, this will replace the boolean restart
@@ -161,7 +168,7 @@ class IPOP(PopulationController):
 
 
 # Default controller
-class Default(PopulationController):
+class DefaultPop(PopulationController):
     """
     IPOP population controller (Auger, A. and Hansen, N., 2005, September. A restart CMA evolution strategy with increasing population size. In 2005 IEEE congress on evolutionary computation (Vol. 2, pp. 1769-1776). IEEE.).
 

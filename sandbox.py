@@ -10,9 +10,9 @@ from ioh import logger
 # print(s.dimensions)
 
 
-p = get_problem(1, 0, 2, ProblemClass.BBOB)
-l = logger.Analyzer(triggers=[logger.trigger.ALWAYS], folder_name="results/tempres")
-p.attach_logger(l)
+# p = get_problem(1, 0, 2, ProblemClass.BBOB)
+# l = logger.Analyzer(triggers=[logger.trigger.ALWAYS], additional_properties=[logger.property.CURRENTY, logger.property.TRANSFORMEDY], folder_name="results/tempres")
+# p.attach_logger(l)
 # help(logger.Analyzer)
 # print(isinstance(p, problem.BBOB))
 # print(type(p), isinstance(p, ProblemType))
@@ -39,23 +39,22 @@ p.attach_logger(l)
 
 
 
-from cmaes import CMAES
-from controllers import IPOP, Default
-ipop = IPOP()
-cma = CMAES(ipop)
-a = cma.run_verb(p, "BBOB")
-p.reset()
-cpop = Default()
-cma = CMAES(cpop)
-a = cma.run_verb(p, "BBOB")
-p.reset()
-l.close()
+# from cmaes import CMAES
+# from controllers import IPOP, DefaultPop
+# import numpy as np
+# np.random.seed(42)
+# ipop = IPOP()
+# cma = CMAES(ipop)
+# a = cma.run_restart(p)
+# p.reset()
+# cpop = DefaultPop()
+# cma = CMAES(controller= cpop)
+# a = cma.run(p)
+# p.reset()
+# l.close()
 
 
 
-# from ioh import Experiment
-# e = Experiment(cma, [1, 2], [0, 1, 2, 3, 4], [2, 5])
-# e.run()
 
 
 
