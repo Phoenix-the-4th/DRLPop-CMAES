@@ -9,7 +9,21 @@ from dataclasses import dataclass, field
 from ioh import problem, ProblemType, get_problem
 from modcma import ModularCMAES, Parameters
 from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
+import gymnasium as gym
 
+
+
+
+class CMAEnv(gym.Env):
+
+    def __init__(self, dim: int = 10, fids: List[int] = list(range(1, 25)), iids = list(range(15))):
+        super().__init__()
+        self.action_space = gym.spaces.Box(low = 2, high = np.iinfo(np.int64).max, dtype = np.int64)
+        self.observation_space = gym.spaces.Box(low = 0, high = np.iinfo(np.float32).max, shape=(3,), dtype=np.float32)   # population size, step size, fraction of budget used
+
+    def reset(self, *, seed = None, options = None):
+        return super().reset(seed=seed, options=options)
 
 
 
