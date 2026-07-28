@@ -7,6 +7,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from agents import Agent
+import torch
+import gymnasium as gym
+import numpy as np
 
 
 # State snapshot passed to controller for decision making
@@ -43,6 +47,7 @@ class CurrentState:
     fopt_best: float
     n: int
     used_budget: int
+    total_budget: int
     # triggered_criteria: Dict[str, bool] = field(default_factory=dict)
     # extra: Dict[str, Any] = field(default_factory=dict)
     triggered_criteria: Dict[str, bool]
@@ -212,3 +217,64 @@ class DefaultPop(PopulationController):
         return (
             f"DefaultController(lambda={self.initial_lambda})"
         )
+
+
+# DRL controller
+class DRLPop(PopulationController):
+    """
+    IPOP population controller (Auger, A. and Hansen, N., 2005, September. A restart CMA evolution strategy with increasing population size. In 2005 IEEE congress on evolutionary computation (Vol. 2, pp. 1769-1776). IEEE.).
+
+    After each restart the population size is multiplied by ipop_factor(default 2).
+
+    Parameters
+    -
+    ipop_factor : int
+        Multiplicative increase applied to lambda at each restart. The default value is 2.
+    initial_lambda : int or None
+        Starting population size.  If None, the runner supplies the modcma default (4 + floor(3 * ln(d))).
+    """
+
+    def __init__(
+        self,
+        model_file: str,
+        env: gym.Env,
+        state_type: int
+    ):
+        super().__init__(restart = False)
+        self.model_file = model_file
+        self.model: Agent = Agent(env)
+        self.load_weights()
+        self.state_type = state_type
+
+    def reset(self) -> None:
+        """Reset for a new independent run."""
+        self.load_weights()
+
+    def select_lambda(self, state: CurrentState) -> int:
+        """
+        Double the population size. On the first restart the current lambda is taken from state (which reflects the modcma default if initial_lambda was None).
+
+        Parameters
+        -
+        state : CurrentState
+
+        Returns
+        -
+        int
+            New lambda for the next CMA-ES run.
+        """
+        with torch.no_grad:
+            if self.state_type == 1:
+                obs = [state.current_lambda, state.current_sigma, state.used_budget/state.total_budget]
+            action, _, _, _ = self.model.get_action_and_value(np.asarray(obs))
+        return int(action[0])
+
+    def __repr__(self) -> str:
+        return (
+            f"DRLController(model={self.model_file})"
+        )
+
+    def load_weights(self):
+        self.model = self.model.to("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.load_state_dict(torch.load(self.model_file, weights_only=True))
+        self.model.eval()

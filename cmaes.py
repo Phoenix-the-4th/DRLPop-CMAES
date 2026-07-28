@@ -6,134 +6,10 @@ PopulationController.
 
 from controllers import PopulationController, CurrentState, BBOBState, DefaultPop
 from dataclasses import dataclass, field
-from ioh import problem, ProblemType
+from ioh import problem, ProblemType, get_problem
 from modcma import ModularCMAES, Parameters
 from typing import Any, Dict, List, Optional, Tuple
 
-# # Framework to store individual run results
-# @dataclass
-# class BaseResult:
-#     """
-#     Complete record of one CMA-Es run.
-
-#     Attributes
-#     -
-#     func_name : str
-#         Name of the optimisation target (e.g. 'Sphere').
-#     fid : int
-#         BBOB function ID.
-#     iid : int
-#         BBOB instance ID.
-#     dim : int
-#         Problem dimensionality.
-#     func_class : str
-#         Name of the benchmark from which function is being used.
-#     controller_name : str
-#         Name of the PopulationController used (e.g. 'IPOPController').
-#     run_index : int
-#         Which independent repeat this is (0-indexed).
-#     fopt : float
-#         Best f(x) - f* achieved.
-#     used_budget : int
-#         Function evaluations actually consumed.
-#     n_restarts : int
-#         Number of restarts that occurred.
-#     lambda_history : List[int]
-#         Population size used in each phase (length = n_restarts + 1).
-#     fopt_history : List[float]
-#         Optimal phase at the end of each phase.
-#     restart_criteria_history : List[Dict[str, bool]]
-#         Which termination criteria fired at each restart event.
-#     """
-#     func_class: str
-#     func_name: str
-#     fid: int
-#     iid: int
-#     dim: int
-#     controller_name: str
-#     run_index: int
-#     fopt_best: float
-#     total_used_budget: int
-#     fopt_history_budget: Dict[int, float]
-#     lambda_history: List[int]
-
-# @dataclass
-# class RestartResult(BaseResult):
-#     """
-#     Complete record of one CMA-Es run.
-
-#     Attributes
-#     -
-#     func_name : str
-#         Name of the optimisation target (e.g. 'Sphere').
-#     fid : int
-#         BBOB function ID.
-#     iid : int
-#         BBOB instance ID.
-#     dim : int
-#         Problem dimensionality.
-#     func_class : str
-#         Name of the benchmark from which function is being used.
-#     controller_name : str
-#         Name of the PopulationController used (e.g. 'IPOPController').
-#     run_index : int
-#         Which independent repeat this is (0-indexed).
-#     fopt : float
-#         Best f(x) - f* achieved.
-#     used_budget : int
-#         Function evaluations actually consumed.
-#     n_restarts : int
-#         Number of restarts that occurred.
-#     lambda_history : List[int]
-#         Population size used in each phase (length = n_restarts + 1).
-#     fopt_history : List[float]
-#         Optimal phase at the end of each phase.
-#     restart_criteria_history : List[Dict[str, bool]]
-#         Which termination criteria fired at each restart event.
-#     """
-#     n_restarts: int
-#     fopt_sample_history: List[float] = field(default_factory=list)
-#     fopt_best_history: List[float] = field(default_factory=list)
-#     restart_criteria_history: List[Dict[str, bool]] = field(default_factory=list)
-
-# @dataclass
-# class ContResult(BaseResult):
-#     """
-#     Complete record of one CMA-Es run.
-
-#     Attributes
-#     -
-#     func_name : str
-#         Name of the optimisation target (e.g. 'Sphere').
-#     fid : int
-#         BBOB function ID.
-#     iid : int
-#         BBOB instance ID.
-#     dim : int
-#         Problem dimensionality.
-#     func_class : str
-#         Name of the benchmark from which function is being used.
-#     controller_name : str
-#         Name of the PopulationController used (e.g. 'IPOPController').
-#     run_index : int
-#         Which independent repeat this is (0-indexed).
-#     fopt : float
-#         Best f(x) - f* achieved.
-#     used_budget : int
-#         Function evaluations actually consumed.
-#     n_restarts : int
-#         Number of restarts that occurred.
-#     lambda_history : List[int]
-#         Population size used in each phase (length = n_restarts + 1).
-#     fopt_history : List[float]
-#         Optimal phase at the end of each phase.
-#     restart_criteria_history : List[Dict[str, bool]]
-#         Which termination criteria fired at each restart event.
-#     """
-#     n_steps: int
-#     fopt_sample_history: List[float] = field(default_factory=list)
-#     fopt_best_history: List[float] = field(default_factory=list)
-#     restart_criteria_history: List[Dict[str, bool]] = field(default_factory=list)
 
 
 
@@ -148,14 +24,12 @@ class CMAES:
         Any controller implementing select_lambda(CurrentState) -> int.
     """
 
-    def __init__(self, controller: PopulationController, config: Dict = {}):
+    def __init__(self, controller: PopulationController | None = None, config: Dict = {}):
         self.controller = controller
         self.config = config
         self.config.update({"compute_termination_criteria": True})
         self.success = False
 
-    # def __init__(self):
-    #     self.__init__(DefaultPop())
 
     def run(self, fitness_func: ProblemType):
         """
@@ -277,8 +151,8 @@ class CMAES:
     def make_runner(
         self,
         fitness_func: ProblemType,
-        config: Optional[Dict[str, Any]],
-        lambda_new: Optional[int]
+        config: Dict[str, Any] = {"compute_termination_criteria": True},
+        lambda_new: Optional[int] = None
     ) -> ModularCMAES:
         """
         Construct a fresh ModularCMAES instance for one restart.
@@ -311,10 +185,5 @@ class CMAES:
 
     
     def get_BBOBState(self, cmaes: ModularCMAES, func: ProblemType, sample_fopt: float, n: int, extra: Dict = {}):
-        return BBOBState(cmaes.parameters.lambda_, cmaes.parameters.sigma, func.meta_data.n_variables, sample_fopt, func.state.current_best, n, func.state.evaluations, cmaes.parameters.termination_criteria, extra, func.meta_data.problem_id, func.meta_data.instance)
-
-
-
-
-
+        return BBOBState(cmaes.parameters.lambda_, cmaes.parameters.sigma, func.meta_data.n_variables, sample_fopt, func.state.current_best, n, func.state.evaluations, cmaes.parameters.budget, cmaes.parameters.termination_criteria, extra, func.meta_data.problem_id, func.meta_data.instance)
 
