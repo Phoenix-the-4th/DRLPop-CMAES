@@ -44,7 +44,7 @@ class CMAEnv(gym.Env):
         np.random.shuffle(self.problems)
         self.cache = dict()
         for problem in self.problems:
-            self.cache[problem] = get_problem()
+            self.cache[problem] = get_problem(*problem)
         self.factory = CMAES()
         self.state_type = state_type
         self.reward_type = reward_type
