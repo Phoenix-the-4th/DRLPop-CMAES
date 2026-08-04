@@ -42,6 +42,9 @@ class CMAEnv(gym.Env):
 
         self.problems = list(product(fids, iids, dims))
         np.random.shuffle(self.problems)
+        self.cache = dict()
+        for problem in self.problems:
+            self.cache[problem] = get_problem()
         self.factory = CMAES()
         self.state_type = state_type
         self.reward_type = reward_type
@@ -74,7 +77,8 @@ class CMAEnv(gym.Env):
             if self.pid == 0:
                 np.random.shuffle(self.problems)
 
-        func = get_problem(*self.problems[self.pid])
+        func = self.cache[self.problems[self.pid]]
+        func.reset()
         self.cmaes = self.factory.make_runner(func)
         self.last_fbest = np.inf
         self.fbest = np.inf

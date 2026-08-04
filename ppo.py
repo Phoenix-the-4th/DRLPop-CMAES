@@ -306,14 +306,15 @@ if __name__ == "__main__":
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-        next_obs, _ = envs.reset()
-        next_obs = torch.Tensor(next_obs).to(device)
-        next_done = torch.zeros(args.num_envs).to(device)
-
-        if args.save_model:
-            model_path = f"{args.folder_name}/{run_name}/{args.exp_name}.pt"
+        if args.save_model and iteration % 50 == 0:
+            model_path = f"{args.folder_name}/{run_name}/{args.exp_name}_{iteration}.pt"
             torch.save(agent.state_dict(), model_path)
             print(f"model saved to {model_path}")
+
+    if args.save_model:
+                model_path = f"{args.folder_name}/{run_name}/{args.exp_name}.pt"
+                torch.save(agent.state_dict(), model_path)
+                print(f"model saved to {model_path}")
 
     envs.close()
     writer.close()
