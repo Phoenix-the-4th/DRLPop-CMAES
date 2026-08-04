@@ -29,36 +29,37 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "DRL1"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
     save_model: bool = True
-    """whether to save model into the `runs/{run_name}` folder"""
+    """whether to save model into the `{folder_name}/{run_name}` folder"""
+    folder_name: str = 'folder'
 
     # CMAEnv arguments
     fids: List[int] = field(default_factory=lambda: list(range(1, 25)))
     """BBOB function IDs to train on"""
-    iids: List[int] = field(default_factory=lambda: list(range(15)))
+    iids: List[int] = field(default_factory=lambda: list(range(15, 115)))
     """BBOB instance IDs to train on"""
-    dims: List[int] = field(default_factory=lambda: [10])
+    # dims: List[int] = field(default_factory=lambda: [2, 3, 5, 10, 20, 40])
+    dims: List[int] = field(default_factory=lambda: [5])
     """Problem dimensions to train on"""
     state_type: StateType = StateType.PSB
     """CMAEnv observation type"""
-    reward_type: RewardType = RewardType.FBEST_IMP
+    reward_type: RewardType = RewardType.FBEST_IMP_EVALS
     """CMAEnv reward signal"""
-    # max_lambda: int = 512
-    max_lambda: int = np.iinfo(np.int64).max
+    max_lambda: int = 512
     """Maximum population size the agent can select"""
 
     # PPO hyperparameters (unchanged from CleanRL ppo_continuous_action.py)
-    total_timesteps: int = 1000000
+    total_timesteps: int = 100000000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 1
+    num_envs: int = 64
     """the number of parallel game environments"""
-    num_steps: int = 2048
+    num_steps: int = 1024
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -109,13 +110,9 @@ def make_env(dims, fids, iids, state_type, reward_type, max_lambda, gamma, idx):
     """
     def thunk():
         env = CMAEnv(dims=dims, fids=fids, iids=iids, state_type=state_type, reward_type=reward_type, max_lambda=max_lambda)
-        obs_shape = env.observation_space.shape  # capture before wrapping changes it
         env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = gym.wrappers.RescaleAction(env, -2, 2)
         env = gym.wrappers.ClipAction(env)
-        env = gym.wrappers.NormalizeObservation(env)
-        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10), None)
-        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
         return env
     return thunk
 
@@ -130,7 +127,7 @@ if __name__ == "__main__":
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"cmaes__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"cmaes__{args.exp_name}__{args.seed}__{args.state_type}_{args.reward_type}_{args.total_timesteps}"
 
     if args.track:
         import wandb
@@ -143,7 +140,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    writer = SummaryWriter(f"runs/{run_name}")
+    writer = SummaryWriter(f"{args.folder_name}/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
@@ -158,12 +155,12 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    envs = gym.vector.SyncVectorEnv(
+    envs = gym.vector.AsyncVectorEnv(
         [make_env(args.dims, args.fids, args.iids, args.state_type, args.reward_type, args.max_lambda, args.gamma, i) for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
-    agent = Agent(envs).to(device)
+    agent = Agent(np.array(envs.single_observation_space.shape).prod(), np.prod(envs.single_action_space.shape)).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
@@ -182,6 +179,8 @@ if __name__ == "__main__":
     next_done = torch.zeros(args.num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
+        print(f"[{iteration}/{args.num_iterations}] ", f"({(100 * iteration / args.num_iterations):5.1f}%) ", f"steps={global_step:,}/{args.total_timesteps:,}", file=open(f'{args.folder_name}/{run_name}/progress.txt', 'a'))
+
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
             frac = 1.0 - (iteration - 1.0) / args.num_iterations
@@ -307,10 +306,14 @@ if __name__ == "__main__":
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-    if args.save_model:
-        model_path = f"runs/{run_name}/{args.exp_name}.pt"
-        torch.save(agent.state_dict(), model_path)
-        print(f"model saved to {model_path}")
+        next_obs, _ = envs.reset()
+        next_obs = torch.Tensor(next_obs).to(device)
+        next_done = torch.zeros(args.num_envs).to(device)
+
+        if args.save_model:
+            model_path = f"{args.folder_name}/{run_name}/{args.exp_name}.pt"
+            torch.save(agent.state_dict(), model_path)
+            print(f"model saved to {model_path}")
 
     envs.close()
     writer.close()

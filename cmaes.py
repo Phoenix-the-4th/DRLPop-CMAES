@@ -1,41 +1,20 @@
-"""
-Runs a single CMA-ES optimisation episode using modcma, detecting restart
-conditions and delegating population-size decisions to a pluggable
-PopulationController.
-"""
-
-from controllers import PopulationController, CurrentState, BBOBState, DefaultPop
-from dataclasses import dataclass, field
-from ioh import problem, ProblemType, get_problem
+from ioh import ProblemType
 from modcma import ModularCMAES, Parameters
-from typing import Any, Dict, List, Optional, Tuple
-import numpy as np
-import gymnasium as gym
+from typing import Any, Dict, Optional
 
-
-
-
-class CMAEnv(gym.Env):
-
-    def __init__(self, dim: int = 10, fids: List[int] = list(range(1, 25)), iids = list(range(15))):
-        super().__init__()
-        self.action_space = gym.spaces.Box(low = 2, high = np.iinfo(np.int64).max, dtype = np.int64)
-        self.observation_space = gym.spaces.Box(low = 0, high = np.iinfo(np.float32).max, shape=(3,), dtype=np.float32)   # population size, step size, fraction of budget used
-
-    def reset(self, *, seed = None, options = None):
-        return super().reset(seed=seed, options=options)
-
-
+from controllers import PopulationController, BBOBState
 
 
 class CMAES:
     """
-    Executes one complete CMA-ES optimisation run, possibly including multiple restarts.
+    Executes complete CMAES optimisations. Binds to a specific population configuration mechanism on init. Same object can be used across multiple function optimisations.
 
     Parameters
     -
     controller : PopulationController
         Any controller implementing select_lambda(CurrentState) -> int.
+    config : Dict = {}
+        configuration specifications for the ModularCMAES object
     """
 
     def __init__(self, controller: PopulationController | None = None, config: Dict = {}):
@@ -47,28 +26,17 @@ class CMAES:
 
     def run(self, fitness_func: ProblemType):
         """
-        Optimise fitness_func and return a full run Result.
+        Optimise fitness_func for one full cmaes run.
 
         Parameters
         -
         fitness_func : Callable function
             The objective to minimise (must return a scalar float, or be a modcma-compatible IOHFunction).
-        func_name : str
-            Name of the optimisation target (e.g. 'Sphere').
-        fid : int
-            BBOB function ID.
-        iid : int
-            BBOB instance ID.
-        dim : int
-            Problem dimensionality.
-        func_class : str
-            Name of the benchmark from which function is being used.
-        run_index : int
-            Index of this independent repeat.
 
         Returns
         -
-        Result object
+        steps:
+            Number of steps CMAES was run for
         """
         
         fitness_func.reset()
@@ -80,26 +48,24 @@ class CMAES:
 
         while True:
             # one generation step
-            # should_continue = cmaes.step() and not any(cmaes.parameters.termination_criteria.values())
-            stop = not cmaes.step() or any(cmaes.parameters.termination_criteria.values())
+            s1 = not cmaes.step()
+            s2 = any(cmaes.parameters.termination_criteria.values())
+            stop = s1 or s2
             steps += 1
             sample_fopt = float(cmaes.parameters.fopt)
 
-            # Notify controller every generation (DRL online-update hook)
-            # step_state = self._build_state(cmaes, n_restarts, budget, best_fopt)
+            # Notify controller every generation
             step_state = self.get_BBOBState(cmaes, fitness_func, sample_fopt, steps)
-            self.controller.observe_step(step_state)
+            self.controller.observe_step(step_state)    # redundant
 
-            # if fitness_func.state.optimum_found:
-            #     print(steps)
-
-            # if not should_continue:
-            #     print(step_state)
-            #     print(fitness_func.state.optimum_found)
-            #     print(cmaes.parameters.termination_criteria)
+            # modify population size for next run
+            lambda_new = self.controller.select_lambda(step_state)
+            cmaes.parameters.update_popsize(lambda_new)
 
             if stop:
                 break
+
+        return steps
 
     def run_restart(self, fitness_func: ProblemType):
         """
@@ -109,50 +75,41 @@ class CMAES:
         -
         fitness_func : Callable function
             The objective to minimise (must return a scalar float, or be a modcma-compatible IOHFunction).
-        func_name : str
-            Name of the optimisation target (e.g. 'Sphere').
-        fid : int
-            BBOB function ID.
-        iid : int
-            BBOB instance ID.
-        dim : int
-            Problem dimensionality.
-        func_class : str
-            Name of the benchmark from which function is being used.
-        run_index : int
-            Index of this independent repeat.
-
         Returns
         -
-        Result object
+        steps : int
+            total number of steps made
+        starts : int
+            total number of times cmaes was started/ restarted
         """
         
         fitness_func.reset()
         self.controller.reset()
         steps: int = 0
+        starts: int = 1
 
-        # Initial CMA-ES phase
+        # Initial CMA-ES runner
         cmaes = self.make_runner(fitness_func, self.config, lambda_new=None)
 
         while True:
-            # one generation step
-            # should_continue = cmaes.step() and not any(cmaes.parameters.termination_criteria.values())
-            stop = not cmaes.step()
-            restart = any(cmaes.parameters.termination_criteria.values()) #and not cmaes.parameters.termination_criteria['max_iter']
-            steps += 1
-            sample_fopt = float(cmaes.parameters.fopt)
+            stop = not cmaes.step()     # exhausted budget or terminated from modcma side
+            restart = any(cmaes.parameters.termination_criteria.values())   # hit restart criteria
+            steps += 1      # increment steps used
+            sample_fopt = float(cmaes.parameters.fopt)      # note best candidate of current population for state
 
-            # Notify controller every generation (DRL online-update hook)
-            # step_state = self._build_state(cmaes, n_restarts, budget, best_fopt)
+            # Notify controller every generation
             step_state = self.get_BBOBState(cmaes, fitness_func, sample_fopt, steps)
             self.controller.observe_step(step_state)
 
             if restart:
+                starts += 1
                 lambda_new = self.controller.select_lambda(step_state)
                 cmaes = self.make_runner(fitness_func, self.config, lambda_new)
 
             if stop:
                 break
+
+        return steps, starts
 
 
     def __call__(self, func: ProblemType):
@@ -169,7 +126,7 @@ class CMAES:
         lambda_new: Optional[int] = None
     ) -> ModularCMAES:
         """
-        Construct a fresh ModularCMAES instance for one restart.
+        Construct a fresh ModularCMAES instance for one restart. Automatically deducts function evaluations already exhausted from available budget
 
         Parameters
         -
@@ -178,14 +135,10 @@ class CMAES:
             modcma configuration of parameters.
         lambda_new : int or None
             Desired population size.  If None, use modcma default.
-        used_so_far : int
-            Budget already consumed before this phase.
 
         Returns
         -
         cmaes : ModularCMAES
-        actual_lambda : int
-            Population size actually used.
         """
         params = Parameters(d = fitness_func.meta_data.n_variables)
         config.update({'budget': params.budget - fitness_func.state.evaluations})
@@ -199,5 +152,25 @@ class CMAES:
 
     
     def get_BBOBState(self, cmaes: ModularCMAES, func: ProblemType, sample_fopt: float, n: int, extra: Dict = {}):
+        """
+        Construct a BBOBState object from the current state of a CMA-ES run.
+        
+        Parameters
+        -
+        cmaes : ModularCMAES
+            The active CMA-ES optimizer whose parameters are reported.
+        func : ProblemType
+            The current IOH BBOB problem.
+        sample_fopt : float
+            Best fitness among current population of CMAES
+        n : int
+            The current restart number or step.
+        extra : Dict, optional
+            Additional user-defined information to include in the returned BBOBState. Defaults to an empty dictionary.
+
+        Returns
+        -
+        BBOBState
+        """
         return BBOBState(cmaes.parameters.lambda_, cmaes.parameters.sigma, func.meta_data.n_variables, sample_fopt, func.state.current_best, n, func.state.evaluations, cmaes.parameters.budget, cmaes.parameters.termination_criteria, extra, func.meta_data.problem_id, func.meta_data.instance)
 

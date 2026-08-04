@@ -1,16 +1,10 @@
-"""
-Defines the abstract PopulationController interface and concrete implementations.
-
-"""
-
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+import numpy as np
+import torch
+from typing import Any, Dict
 
 from agents import Agent
-import torch
-import gymnasium as gym
-import numpy as np
 
 
 # State snapshot passed to controller for decision making
@@ -25,16 +19,18 @@ class CurrentState:
         Most recently used population size of the run.
     current_sigma : float
         Most recently used step size of the run.
-    used_budget : int
-        Total function evaluations consumed so far.
-    remaining_budget : int
-        Budget still available.
+    dim : int
+        dimensionality of the function to be optimised
+    fopt_sample : float
+        Best fitness among the current generation
+    fopt_best : float
+        Best fitness found so far
     n : int
         How many steps/restarts have already occured (0 before the first) (steps for continuous optimisations, restarts for restart based).
-    fopt : float
-        Best function value (f - f*) found so far.
-    dim : int
-        Problem dimensionality.
+    used_budget : int
+        Total function evaluations consumed so far.
+    total_budget : int
+        Total budget asigned.
     triggered_criteria : Dict[str, bool]
         Which of the standard stop conditions fired this restart. Keys match modcma's termination_criteria dict: 'max_iter','equalfunvalues', 'flat_fitness', 'tolx', 'tolupsigma', 'conditioncov', 'noeffectaxis', 'noeffectcoor', 'stagnation'.
     extra : dict
@@ -48,8 +44,6 @@ class CurrentState:
     n: int
     used_budget: int
     total_budget: int
-    # triggered_criteria: Dict[str, bool] = field(default_factory=dict)
-    # extra: Dict[str, Any] = field(default_factory=dict)
     triggered_criteria: Dict[str, bool]
     extra: Dict[str, Any]
 
@@ -60,13 +54,10 @@ class BBOBState(CurrentState):
     iid: int
 
 
-##### need to add new data class to set the restart conditions of cmaes, this will replace the boolean restart
-
-
 # Abstract class for controllers
 class PopulationController(ABC):
     """
-    Abstract interface for all population-size controllers. Controller is stateful across restarts within one run (e.g. IPOP needs to track the restart count) but is reset between independent runs using reset().
+    Abstract interface for all population-size controllers. Controller is stateful across restarts within one optimisation run (e.g. IPOP needs to track the restart count) but is reset between independent optimisations using reset().
 
     Parameters
     -
@@ -86,7 +77,7 @@ class PopulationController(ABC):
     @abstractmethod
     def select_lambda(self, state: CurrentState) -> int:
         """
-        Decide the population size for the next CMA-ES restart.
+        Decide the population size using the given state.
 
         Parameters
         -
@@ -111,7 +102,7 @@ class PopulationController(ABC):
         state : CurrentState
             Current state (used_budget, fopt, etc. are updated each generation).
         """
-        pass  # no-op for restart controllersPxt4compscis
+        pass  # no-op for restart controllers
 
 
 # IPOP controller
@@ -125,30 +116,24 @@ class IPOP(PopulationController):
     -
     ipop_factor : int
         Multiplicative increase applied to lambda at each restart. The default value is 2.
-    initial_lambda : int or None
-        Starting population size.  If None, the runner supplies the modcma default (4 + floor(3 * ln(d))).
     """
 
     def __init__(
         self,
         ipop_factor: int = 2,
-        initial_lambda: Optional[int] = None,
     ):
         super().__init__(restart = True)
         if ipop_factor < 2:
             raise ValueError("ipop_factor must be >= 2")
         self.ipop_factor = ipop_factor
-        self.initial_lambda = initial_lambda
-        self.current_lambda = initial_lambda
 
     def reset(self) -> None:
         """Reset for a new independent run."""
-        self.current_lambda = self.initial_lambda
         pass
 
     def select_lambda(self, state: CurrentState) -> int:
         """
-        Double the population size. On the first restart the current lambda is taken from state (which reflects the modcma default if initial_lambda was None).
+        Double the population size.
 
         Parameters
         -
@@ -159,40 +144,25 @@ class IPOP(PopulationController):
         int
             New lambda for the next CMA-ES run.
         """
-        if self.current_lambda is None:
-            # First restart: use whatever the runner started with
-            self.current_lambda = state.current_lambda
-
-        self.current_lambda *= self.ipop_factor
-        return self.current_lambda
+        return state.current_lambda * self.ipop_factor
 
     def __repr__(self) -> str:
         return (
-            f"IPOPController(ipop_factor={self.ipop_factor})"
+            f"IPOP(ipop_factor={self.ipop_factor})"
         )
 
 
 # Default controller
 class DefaultPop(PopulationController):
     """
-    IPOP population controller (Auger, A. and Hansen, N., 2005, September. A restart CMA evolution strategy with increasing population size. In 2005 IEEE congress on evolutionary computation (Vol. 2, pp. 1769-1776). IEEE.).
-
-    After each restart the population size is multiplied by ipop_factor(default 2).
+    Default population, no restart. Baseline run.
 
     Parameters
     -
-    ipop_factor : int
-        Multiplicative increase applied to lambda at each restart. The default value is 2.
-    initial_lambda : int or None
-        Starting population size.  If None, the runner supplies the modcma default (4 + floor(3 * ln(d))).
     """
 
-    def __init__(
-        self,
-        initial_lambda: Optional[int] = None,
-    ):
+    def __init__(self):
         super().__init__(restart = False)
-        self.initial_lambda = initial_lambda
 
     def reset(self) -> None:
         """Reset for a new independent run."""
@@ -200,7 +170,7 @@ class DefaultPop(PopulationController):
 
     def select_lambda(self, state: CurrentState) -> int:
         """
-        Double the population size. On the first restart the current lambda is taken from state (which reflects the modcma default if initial_lambda was None).
+        Poulation size.
 
         Parameters
         -
@@ -209,50 +179,51 @@ class DefaultPop(PopulationController):
         Returns
         -
         int
-            New lambda for the next CMA-ES run.
+            New lambda.
         """
-        return self.current_lambda
+        return state.current_lambda
 
     def __repr__(self) -> str:
         return (
-            f"DefaultController(lambda={self.initial_lambda})"
+            f"DefaultPop()"
         )
 
 
 # DRL controller
 class DRLPop(PopulationController):
     """
-    IPOP population controller (Auger, A. and Hansen, N., 2005, September. A restart CMA evolution strategy with increasing population size. In 2005 IEEE congress on evolutionary computation (Vol. 2, pp. 1769-1776). IEEE.).
-
-    After each restart the population size is multiplied by ipop_factor(default 2).
+    Deep reinforcement learning based population controller.
 
     Parameters
     -
-    ipop_factor : int
-        Multiplicative increase applied to lambda at each restart. The default value is 2.
-    initial_lambda : int or None
-        Starting population size.  If None, the runner supplies the modcma default (4 + floor(3 * ln(d))).
+    model_file : str
+        Path to the model weights to be loaded.
     """
 
     def __init__(
         self,
         model_file: str,
-        env: gym.Env,
-        state_type: int
+        state_type: int,
+        lb: int,
+        ub: int,
     ):
         super().__init__(restart = False)
         self.model_file = model_file
-        self.model: Agent = Agent(env)
+        if state_type == 1:
+            obs_dim = 3
+        self.model: Agent = Agent(obs_dim, 1)
         self.load_weights()
         self.state_type = state_type
+        self.lb = lb
+        self.ub = ub
 
     def reset(self) -> None:
         """Reset for a new independent run."""
-        self.load_weights()
+        pass
 
     def select_lambda(self, state: CurrentState) -> int:
         """
-        Double the population size. On the first restart the current lambda is taken from state (which reflects the modcma default if initial_lambda was None).
+        Evaluate next action using the model.
 
         Parameters
         -
@@ -263,11 +234,13 @@ class DRLPop(PopulationController):
         int
             New lambda for the next CMA-ES run.
         """
-        with torch.no_grad:
+        with torch.no_grad():
             if self.state_type == 1:
                 obs = [state.current_lambda, state.current_sigma, state.used_budget/state.total_budget]
-            action, _, _, _ = self.model.get_action_and_value(np.asarray(obs))
-        return int(action[0])
+            action = self.model.get_action_mean(torch.as_tensor(obs, dtype=torch.float32))
+        newact = 2 + (action - self.lb) / (self.ub - self.lb) * 512
+        clipact = np.clip(newact, 2, 512)
+        return int(clipact)
 
     def __repr__(self) -> str:
         return (

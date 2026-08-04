@@ -15,14 +15,8 @@ class Agent(nn.Module):
     Input  : obs_dim (= 3 for StateType.PSB)
     Output : action_mean (1,) + learned log_std, value scalar
     """
-    def __init__(self, envs):
+    def __init__(self, obs_dim: int, action_dim: int):
         super().__init__()
-        if hasattr(envs, "single_observation_space"):
-            obs_dim = np.array(envs.single_observation_space.shape).prod()
-            action_dim = np.prod(envs.single_action_space.shape)
-        else:
-            obs_dim = np.array(envs.observation_space.shape).prod()
-            action_dim = np.prod(envs.action_space.shape)
         self.critic = nn.Sequential(
             layer_init(nn.Linear(obs_dim, 64)),
             nn.Tanh(),
@@ -50,3 +44,7 @@ class Agent(nn.Module):
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
+
+    def get_action_mean(self, x):
+        action_mean = self.actor_mean(x)
+        return action_mean
