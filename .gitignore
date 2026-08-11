@@ -7,10 +7,5 @@
 /gaussian models
 /experiments
 
-# temporary files
-/results
-
 # model training and evaluation
 /wandb
-/m*/
-/r*/
