@@ -1,0 +1,33 @@
+Added penalty: very bad for +100 -30
+
+Suggestion: drop ts honestly, try a stopping evaluation and a full evaluation ignoring stopping criteria, keep going till budget is hit.
+
+Actions are stuck to 2 probably because it is trying so hard to avoid that -30 penalty, this was an oversight - model is learning early to be very safe never gets the chance to see bonus runs.
+
+Perhaps there is some benefit to be had by adjusting the penalty to be less than the typical reward. This can be listed under future work.
+
+Environment:
+    fids = 1..24
+    iids = 15..114
+    dim = 5
+    state = PSB
+    max_lambda = 512
+    action scaling: [-2, 2] to [2, 512]
+
+Agent:
+    Hidden layers: 1 critic/actor
+    Actions sampling: Normal
+    bonus: 100 on truncation
+    penalty: 30 on termination
+
+Training:
+    tracked: yes
+    total training steps: 10,000,000
+    batches: 32 * 1024
+
+
+Results:
+                                       2   3   5  10  20  40  sum
+penalised_r/FBEST_IMP_RATIO_10000000  21  15  14  15  15  15   95
+penalised_r/FBEST_IMP_EVALS_10000000  20  15  14  15  15  15   94
+out of total 24*15 = 360 results per dim, 360 * 6 = 2040 total results

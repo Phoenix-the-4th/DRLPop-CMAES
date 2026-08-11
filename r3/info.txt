@@ -1,0 +1,24 @@
+Environment:
+    fids = 1..24
+    iids = 15..114
+    dim = 5
+    state = PSB
+    max_lambda = 512
+    action scaling: [-2, 2] to [2, 512]
+
+Agent:
+    Hidden layers: 1 critic/actor
+    Actions sampling: Normal
+    bonus: 20 on truncation
+
+Training:
+    tracked: yes
+    total training steps: 10,000,000
+    batches: 32 * 1024
+
+
+Results:
+                               2    3    5   10   20  40  sum
+r3/FBEST_IMP_EVALS_10000000  207  183  173  147  106  26  842
+r3/FBEST_IMP_RATIO_10000000  212  179  159  148  112  33  843
+out of total 24*15 = 360 results per dim, 360 * 6 = 2040 total results

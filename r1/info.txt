@@ -1,0 +1,36 @@
+This was the first usable run lowk
+
+Suggestion: redo evaluation with proper seeding and seeding to 1 like training
+
+Action mean is lingering around -1.5, population doesnt seem to cross 150 
+
+Runs are terminating early, not hitting the budget.
+Possible cause is model 
+Will try modifying the bonus to penalise early termination under 90% budget.This should push model to actively avoid early terminations, and 
+
+Environment:
+    fids = 1..24
+    iids = 15..114
+    dim = 5
+    state = PSB
+    max_lambda = 512
+    action scaling: [-2, 2] to [2, 512]
+
+Agent:
+    Hidden layers: 1 critic/actor
+    Actions sampling: Normal
+    bonus: 100 on truncation
+
+Training:
+    tracked: yes
+    total training steps: 10,000,000
+    batches: 32 * 1024
+
+
+Results:
+                               2    3    5   10   20  40  sum
+r1/FBEST_IMP_RATIO_10000000  209  187  174  150  118  32  870
+r1/FBEST_IMP_10000000         48   44   35   33   43  15  218
+r1/RAW_BEST_10000000          30   30   30   30   30   8  158
+r1/FBEST_IMP_EVALS_10000000  204  183  178  145  108  28  846
+out of total 24*15 = 360 results per dim, 360 * 6 = 2040 total results
