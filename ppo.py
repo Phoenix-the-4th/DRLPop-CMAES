@@ -47,7 +47,7 @@ class Args:
     """Problem dimensions to train on"""
     state_type: StateType = StateType.PSB
     """CMAEnv observation type"""
-    reward_type: RewardType = RewardType.FBEST_IMP_EVALS
+    reward_type: RewardType = RewardType.FBEST_IMP_RATIO
     """CMAEnv reward signal"""
     max_lambda: int = 512
     """Maximum population size the agent can select"""
